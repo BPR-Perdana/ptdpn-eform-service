@@ -171,7 +171,7 @@ func (p *FraudPoller) sendCertificateSMS(ctx context.Context, app *model.Applica
 	refID := app.ID[:8]
 
 	message := fmt.Sprintf(
-		"Sertifikat Elektronik (SE) Anda telah diterbitkan oleh VIDA sebagai PSrE mitra dari BPR Perdana.Anda dapat mengakses SE Anda di https://sign.vida.id",
+		"Sertifikat Elektronik (SE) Anda telah diterbitkan oleh VIDA sebagai PSrE mitra dari PT BPR Daya Perdana Nusantara. Anda dapat mengakses SE Anda di https://sign.vida.id",
 	)
 
 	result, err := p.sms.Send(phone, message, "CERT-"+refID)
