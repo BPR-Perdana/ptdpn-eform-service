@@ -101,6 +101,36 @@ type Message struct {
 	Body    string
 }
 
+// ─── Custom LoginAuth untuk Microsoft 365 / Office 365 ──────────────────────
+type loginAuth struct {
+	username, password string
+}
+
+// LoginAuth is used for SMTP servers that only support AUTH LOGIN (like Microsoft 365).
+func LoginAuth(username, password string) smtp.Auth {
+	return &loginAuth{username, password}
+}
+
+func (a *loginAuth) Start(server *smtp.ServerInfo) (string, []byte, error) {
+	return "LOGIN", []byte(a.username), nil
+}
+
+func (a *loginAuth) Next(fromServer []byte, more bool) ([]byte, error) {
+	if more {
+		switch string(fromServer) {
+		case "Username:":
+			return []byte(a.username), nil
+		case "Password:":
+			return []byte(a.password), nil
+		default:
+			return nil, fmt.Errorf("unknown from server: %s", string(fromServer))
+		}
+	}
+	return nil, nil
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+
 func (m *Mailer) Send(msg Message) error {
 	addr := fmt.Sprintf("%s:%d", m.host, m.port)
 	if m.port == 465 {
@@ -109,8 +139,19 @@ func (m *Mailer) Send(msg Message) error {
 	return m.sendSTARTTLS(addr, msg)
 }
 
+func (m *Mailer) getAuth() smtp.Auth {
+	// Microsoft 365 (Office 365) requires AUTH LOGIN.
+	// Standard library's smtp.PlainAuth() uses AUTH PLAIN.
+	if strings.Contains(strings.ToLower(m.host), "office365.com") || 
+	   strings.Contains(strings.ToLower(m.host), "outlook.com") {
+		return LoginAuth(m.username, m.password)
+	}
+	// Fallback to PLAIN auth for Mailtrap, Gmail, SendGrid, dll.
+	return smtp.PlainAuth("", m.username, m.password, m.host)
+}
+
 func (m *Mailer) sendSTARTTLS(addr string, msg Message) error {
-	auth := smtp.PlainAuth("", m.username, m.password, m.host)
+	auth := m.getAuth()
 	return smtp.SendMail(addr, auth, m.fromEmail, []string{msg.To}, []byte(m.buildRaw(msg)))
 }
 
@@ -128,7 +169,7 @@ func (m *Mailer) sendSSL(addr string, msg Message) error {
 	}
 	defer client.Close()
 
-	auth := smtp.PlainAuth("", m.username, m.password, m.host)
+	auth := m.getAuth()
 	if err = client.Auth(auth); err != nil {
 		return fmt.Errorf("SMTP auth failed: %w", err)
 	}
