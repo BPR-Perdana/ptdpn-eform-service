@@ -172,7 +172,7 @@ func main() {
 
 	otpSvc := service.NewOTPService(smsClient, redisClient, log)
 	authSvc := service.NewAuthService(userRepo, auditRepo, jwtManager, log)
-	notifSvc := service.NewNotificationService(mailer, notifRepo, log)
+	notifSvc := service.NewNotificationService(mailer, smsClient, notifRepo, log)
 	appSvc := service.NewApplicationService(appRepo, customerRepo, auditRepo, vidaServices, storageManager, notifSvc, log, cfg)
 	contractSvc := service.NewContractService(appRepo, contractRepo, auditRepo, vidaServices, storageManager, cfg.Storage.LogoPath, notifSvc, cfg, log)
 	adminSvc := service.NewAdminService(appRepo, userRepo, auditRepo, configRepo, contractSvc, notifSvc, log)
