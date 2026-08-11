@@ -17,6 +17,7 @@ type CustomerRepository interface {
 	FindByNIK(ctx context.Context, nik string) (*model.Customer, error)
 	Update(ctx context.Context, customer *model.Customer) error
 	MarkPhoneVerified(ctx context.Context, appID string) error
+	MarkEmailVerified(ctx context.Context, appID string) error
 }
 
 type customerRepository struct {
@@ -72,7 +73,6 @@ func (r *customerRepository) Update(ctx context.Context, customer *model.Custome
 }
 
 func (r *customerRepository) MarkPhoneVerified(ctx context.Context, appID string) error {
-	// Cari customer berdasarkan application_id
 	err := r.db.WithContext(ctx).
 		Model(&model.Customer{}).
 		Where("id = (SELECT customer_id FROM applications WHERE id = ? AND deleted_at IS NULL)", appID).
@@ -82,6 +82,20 @@ func (r *customerRepository) MarkPhoneVerified(ctx context.Context, appID string
 		}).Error
 	if err != nil {
 		return fmt.Errorf("MarkPhoneVerified: %w", err)
+	}
+	return nil
+}
+
+func (r *customerRepository) MarkEmailVerified(ctx context.Context, appID string) error {
+	err := r.db.WithContext(ctx).
+		Model(&model.Customer{}).
+		Where("id = (SELECT customer_id FROM applications WHERE id = ? AND deleted_at IS NULL)", appID).
+		Updates(map[string]interface{}{
+			"email_verified":    1,
+			"email_verified_at": time.Now(),
+		}).Error
+	if err != nil {
+		return fmt.Errorf("MarkEmailVerified: %w", err)
 	}
 	return nil
 }

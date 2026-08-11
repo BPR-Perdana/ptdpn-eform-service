@@ -193,6 +193,7 @@ type ApplicationService interface {
 	GetApplication(ctx context.Context, id string) (*model.Application, error)
 	GetApplicationWithDetails(ctx context.Context, id string) (*model.Application, error)
 	MarkPhoneVerified(ctx context.Context, appID string) error
+	MarkEmailVerified(ctx context.Context, appID string) error
 
 	// Step 3 - upload KTP image, call VIDA OCR, save result
 	ProcessOCR(ctx context.Context, appID string, input OCRInput) (*vida.OCRData, error)
@@ -1004,11 +1005,15 @@ func (s *applicationService) GetLivenessToken(ctx context.Context, appID string)
 		return nil, fmt.Errorf("load application failed: %w", err)
 	}
 
-	// ── Guard: nomor HP harus sudah diverifikasi via OTP ─────────────────────
+	// ── Guard: nomor HP & Email harus sudah diverifikasi via OTP ─────────────────────
 	// Verifikasi dilakukan di Step 4 (UpdatePersonalInfo + OTP).
-	// Tanpa phone_verified, nasabah tidak bisa lanjut ke Step 5 (liveness).
+	// Tanpa phone_verified & email_verified, nasabah tidak bisa lanjut ke Step 5 (liveness).
 	if app.Customer.PhoneVerified == nil || !*app.Customer.PhoneVerified {
-		return nil, fmt.Errorf("%w: selesaikan verifikasi OTP terlebih dahulu",
+		return nil, fmt.Errorf("%w: selesaikan verifikasi OTP HP terlebih dahulu",
+			ErrPhoneNotVerified)
+	}
+	if app.Customer.EmailVerified == nil || !*app.Customer.EmailVerified {
+		return nil, fmt.Errorf("%w: selesaikan verifikasi OTP Email terlebih dahulu",
 			ErrPhoneNotVerified)
 	}
 
@@ -1041,6 +1046,10 @@ func (s *applicationService) GetLivenessToken(ctx context.Context, appID string)
 
 func (s *applicationService) MarkPhoneVerified(ctx context.Context, appID string) error {
 	return s.customerRepo.MarkPhoneVerified(ctx, appID)
+}
+
+func (s *applicationService) MarkEmailVerified(ctx context.Context, appID string) error {
+	return s.customerRepo.MarkEmailVerified(ctx, appID)
 }
 
 // UploadPaymentProof menyimpan bukti transfer nasabah.

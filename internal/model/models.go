@@ -53,10 +53,12 @@ type Customer struct {
 	MonthlyIncome     *uint64    `gorm:"column:monthly_income"                       json:"monthly_income,omitempty"`
 	Education         *string    `gorm:"column:education"                            json:"education,omitempty"`
 	Email             *string    `gorm:"column:email;type:varchar(100)"              json:"email,omitempty"`
+	EmailVerified     *bool      `gorm:"column:email_verified;default:false"         json:"email_verified"`
+	EmailVerifiedAt   *time.Time `gorm:"column:email_verified_at"                    json:"email_verified_at,omitempty"`
 	PhoneNumber       *string    `gorm:"column:phone_number;type:varchar(20)"        json:"phone_number,omitempty"`
 	PhoneNumberWA     *string    `gorm:"column:phone_number_wa;type:varchar(20)"     json:"phone_number_wa,omitempty"`
-	PhoneVerified     *bool      `gorm:"column:phone_verified;default:false"  json:"phone_verified"`
-	PhoneVerifiedAt   *time.Time `gorm:"column:phone_verified_at"             json:"phone_verified_at,omitempty"`
+	PhoneVerified     *bool      `gorm:"column:phone_verified;default:false"         json:"phone_verified"`
+	PhoneVerifiedAt   *time.Time `gorm:"column:phone_verified_at"                    json:"phone_verified_at,omitempty"`
 	WorkAddress       *string    `gorm:"column:work_address;type:text"               json:"work_address,omitempty"`
 	Base
 }

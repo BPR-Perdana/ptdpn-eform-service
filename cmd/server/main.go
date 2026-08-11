@@ -120,14 +120,18 @@ func main() {
 		zap.String("base_path", cfg.Storage.BasePath),
 	)
 
-	mailer := email.New(
-		cfg.Email.Host,
-		cfg.Email.Port,
-		cfg.Email.Username,
-		cfg.Email.Password,
-		cfg.Email.FromName,
-		cfg.Email.FromEmail,
-	)
+	mailer := email.New(email.Config{
+		Provider:     cfg.Email.Provider,
+		Host:         cfg.Email.Host,
+		Port:         cfg.Email.Port,
+		Username:     cfg.Email.Username,
+		Password:     cfg.Email.Password,
+		FromName:     cfg.Email.FromName,
+		FromEmail:    cfg.Email.FromEmail,
+		TenantID:     cfg.Email.GraphTenantID,
+		ClientID:     cfg.Email.GraphClientID,
+		ClientSecret: cfg.Email.GraphClientSecret,
+	})
 
 	if cfg.Storage.LogoPath != "" {
 		if err := mailer.LoadLogo(cfg.Storage.LogoPath); err != nil {
@@ -170,7 +174,7 @@ func main() {
 	vidaServices := vida.NewServices(cfg)
 	log.Info("VIDA services initialized")
 
-	otpSvc := service.NewOTPService(smsClient, redisClient, log)
+	otpSvc := service.NewOTPService(smsClient, mailer, redisClient, log)
 	authSvc := service.NewAuthService(userRepo, auditRepo, jwtManager, log)
 	notifSvc := service.NewNotificationService(mailer, notifRepo, log)
 	appSvc := service.NewApplicationService(appRepo, customerRepo, auditRepo, vidaServices, storageManager, notifSvc, log, cfg)

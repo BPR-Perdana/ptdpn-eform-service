@@ -9,14 +9,15 @@ import (
 	"time"
 
 	"github.com/cappyHoding/ptdpn-eform-service/internal/integration/ioh"
+	"github.com/cappyHoding/ptdpn-eform-service/pkg/email"
 	"github.com/cappyHoding/ptdpn-eform-service/pkg/logger"
 	"github.com/redis/go-redis/v9"
 	"go.uber.org/zap"
 )
 
 type OTPService interface {
-	SendOTP(ctx context.Context, appID, phone string) error
-	VerifyOTP(ctx context.Context, appID, code string) error
+	SendOTP(ctx context.Context, appID, phone, emailAddr, method string) error
+	VerifyOTP(ctx context.Context, appID, code, method string) error
 }
 
 const (
@@ -27,18 +28,19 @@ const (
 )
 
 type otpService struct {
-	sms *ioh.SMSClient
-	rdb *redis.Client
-	log *logger.Logger
+	sms    *ioh.SMSClient
+	mailer *email.Mailer
+	rdb    *redis.Client
+	log    *logger.Logger
 }
 
-func NewOTPService(sms *ioh.SMSClient, rdb *redis.Client, log *logger.Logger) OTPService {
-	return &otpService{sms: sms, rdb: rdb, log: log}
+func NewOTPService(sms *ioh.SMSClient, mailer *email.Mailer, rdb *redis.Client, log *logger.Logger) OTPService {
+	return &otpService{sms: sms, mailer: mailer, rdb: rdb, log: log}
 }
 
-func (s *otpService) SendOTP(ctx context.Context, appID, phone string) error {
+func (s *otpService) SendOTP(ctx context.Context, appID, phone, emailAddr, method string) error {
 	// Cek cooldown
-	cooldownKey := "otp:cooldown:" + appID
+	cooldownKey := fmt.Sprintf("otp:cooldown:%s:%s", method, appID)
 	ttl, _ := s.rdb.TTL(ctx, cooldownKey).Result()
 	if ttl > 0 {
 		return fmt.Errorf("OTP_COOLDOWN:%d", int(ttl.Seconds()))
@@ -52,16 +54,54 @@ func (s *otpService) SendOTP(ctx context.Context, appID, phone string) error {
 	code := fmt.Sprintf("%04d", n.Int64()+1000) // 1000–9999
 
 	// Simpan ke Redis
-	codeKey := "otp:code:" + appID
+	codeKey := fmt.Sprintf("otp:code:%s:%s", method, appID)
 	if err := s.rdb.Set(ctx, codeKey, code, otpTTL).Err(); err != nil {
 		return fmt.Errorf("save OTP to Redis failed: %w", err)
 	}
 
 	// Set cooldown + reset attempt counter
 	s.rdb.Set(ctx, cooldownKey, "1", otpCooldownTTL)
-	s.rdb.Del(ctx, "otp:attempts:"+appID)
+	s.rdb.Del(ctx, fmt.Sprintf("otp:attempts:%s:%s", method, appID))
 
-	// Kirim SMS
+	// Kirim via Email atau SMS
+	if method == "email" {
+		if emailAddr == "" {
+			return fmt.Errorf("customer email is empty for email OTP")
+		}
+		
+		msg := email.Message{
+			To:      emailAddr,
+			Subject: "Kode Verifikasi (OTP) E-Form BPR Perdana",
+			Body: fmt.Sprintf(`
+				<div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+					<h2>Kode Verifikasi (OTP)</h2>
+					<p>Halo,</p>
+					<p>Berikut adalah kode verifikasi OTP Anda untuk pengajuan E-Form BPR Perdana:</p>
+					<h1 style="color: #4CAF50; letter-spacing: 5px;">%s</h1>
+					<p>Kode ini berlaku selama 5 menit. <strong>Jangan bagikan kode ini kepada siapapun!</strong></p>
+					<br/>
+					<p>Terima kasih,<br/>Tim BPR Perdana</p>
+				</div>
+			`, code),
+		}
+
+		if err := s.mailer.Send(msg); err != nil {
+			s.log.Error("OTP Email send failed",
+				zap.String("app_id", appID),
+				zap.String("email", emailAddr),
+				zap.Error(err),
+			)
+			return fmt.Errorf("EMAIL_SEND_FAILED: %w", err)
+		}
+
+		s.log.Info("OTP Email sent",
+			zap.String("app_id", appID),
+			zap.String("email", emailAddr),
+		)
+		return nil
+	}
+
+	// Kirim SMS default
 	msisdn := ioh.NormalizePhone(phone)
 	message := fmt.Sprintf(
 		"BPR Perdana: Kode OTP Anda adalah %s. Berlaku 5 menit. Jangan bagikan kode ini kepada siapapun.",
@@ -87,9 +127,9 @@ func (s *otpService) SendOTP(ctx context.Context, appID, phone string) error {
 	return nil
 }
 
-func (s *otpService) VerifyOTP(ctx context.Context, appID, inputCode string) error {
+func (s *otpService) VerifyOTP(ctx context.Context, appID, inputCode, method string) error {
 	// Cek lockout
-	attemptsKey := "otp:attempts:" + appID
+	attemptsKey := fmt.Sprintf("otp:attempts:%s:%s", method, appID)
 	attempts, _ := s.rdb.Get(ctx, attemptsKey).Int()
 	if attempts >= otpMaxAttempts {
 		ttl, _ := s.rdb.TTL(ctx, attemptsKey).Result()
@@ -97,7 +137,7 @@ func (s *otpService) VerifyOTP(ctx context.Context, appID, inputCode string) err
 	}
 
 	// Ambil kode dari Redis
-	codeKey := "otp:code:" + appID
+	codeKey := fmt.Sprintf("otp:code:%s:%s", method, appID)
 	storedCode, err := s.rdb.Get(ctx, codeKey).Result()
 	if err == redis.Nil {
 		return fmt.Errorf("OTP_EXPIRED")
