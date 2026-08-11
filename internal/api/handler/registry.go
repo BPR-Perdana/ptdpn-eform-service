@@ -17,4 +17,5 @@ type Registry struct {
 	Auth        *AuthHandler
 	Admin       *AdminHandler
 	Webhook     *WebhookHandler
+	Public      *PublicHandler
 }

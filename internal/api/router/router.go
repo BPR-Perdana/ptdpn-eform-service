@@ -83,6 +83,9 @@ func Setup(deps Dependencies) *gin.Engine {
 	// ── API v1 Routes ─────────────────────────────────────────────────────────
 	v1 := router.Group("/api/v1")
 
+	// Public config (no auth)
+	v1.GET("/config", deps.Handlers.Public.GetPublicConfig)
+
 	// ── Customer-Facing Routes (no login, session-token auth after Step 2) ───
 	setupCustomerRoutes(v1, deps)
 

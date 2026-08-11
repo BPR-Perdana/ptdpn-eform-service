@@ -184,6 +184,7 @@ func main() {
 		Auth:        handler.NewAuthHandler(authSvc),
 		Admin:       handler.NewAdminHandler(adminSvc),
 		Webhook:     handler.NewWebhookHandler(contractSvc, contractRepo, cfg.Vida.WebhookSecret, log),
+		Public:      handler.NewPublicHandler(configRepo),
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())

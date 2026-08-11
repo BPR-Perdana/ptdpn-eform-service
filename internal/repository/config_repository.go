@@ -12,6 +12,7 @@ import (
 // ConfigRepository defines operations for system configuration.
 type ConfigRepository interface {
 	List(ctx context.Context) ([]model.SystemConfig, error)
+	FindPublic(ctx context.Context) ([]model.SystemConfig, error)
 	FindByKey(ctx context.Context, key string) (*model.SystemConfig, error)
 	Upsert(ctx context.Context, cfg *model.SystemConfig) error
 }
@@ -32,6 +33,18 @@ func (r *configRepository) List(ctx context.Context) ([]model.SystemConfig, erro
 		Find(&configs).Error
 	if err != nil {
 		return nil, fmt.Errorf("list config failed: %w", err)
+	}
+	return configs, nil
+}
+
+func (r *configRepository) FindPublic(ctx context.Context) ([]model.SystemConfig, error) {
+	var configs []model.SystemConfig
+	err := r.db.WithContext(ctx).
+		Where("is_public = ? AND deleted_at IS NULL", 1).
+		Order("config_key ASC").
+		Find(&configs).Error
+	if err != nil {
+		return nil, fmt.Errorf("find public config failed: %w", err)
 	}
 	return configs, nil
 }
