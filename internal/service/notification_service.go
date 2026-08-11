@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/cappyHoding/ptdpn-eform-service/internal/integration/ioh"
 	"github.com/cappyHoding/ptdpn-eform-service/internal/model"
 	"github.com/cappyHoding/ptdpn-eform-service/internal/repository"
 	"github.com/cappyHoding/ptdpn-eform-service/pkg/email"
@@ -19,21 +20,25 @@ type NotificationService interface {
 	SendRejectionNotice(ctx context.Context, app *model.Application, reason string) error
 	SendApprovalNotice(ctx context.Context, app *model.Application) error
 	SendESignLink(ctx context.Context, app *model.Application, signLink string, deadline time.Time) error
+	SendPostSignSMS(ctx context.Context, app *model.Application) error
 }
 
 type notificationService struct {
 	mailer    *email.Mailer
+	smsClient *ioh.SMSClient
 	notifRepo repository.NotificationRepository
 	log       *logger.Logger
 }
 
 func NewNotificationService(
 	mailer *email.Mailer,
+	smsClient *ioh.SMSClient,
 	notifRepo repository.NotificationRepository,
 	log *logger.Logger,
 ) NotificationService {
 	return &notificationService{
 		mailer:    mailer,
+		smsClient: smsClient,
 		notifRepo: notifRepo,
 		log:       log,
 	}
@@ -278,6 +283,69 @@ func formatIDR(amount uint64) string {
 		result += string(ch)
 	}
 	return "Rp " + result
+}
+
+// ── SendPostSignSMS ─────────────────────────────────────────────────────────
+
+func (s *notificationService) SendPostSignSMS(ctx context.Context, app *model.Application) error {
+	if s.smsClient == nil {
+		s.log.Warn("SMS client not configured, skipping post-sign SMS", zap.String("app_id", app.ID))
+		return nil
+	}
+
+	if app.Customer.PhoneNumber == nil || *app.Customer.PhoneNumber == "" {
+		return fmt.Errorf("customer phone number is missing for app %s", app.ID)
+	}
+
+	customerName := "Nasabah"
+	if app.Customer.FullName != nil {
+		customerName = *app.Customer.FullName
+	}
+
+	message := fmt.Sprintf("Sertifikat Elektronik atas nama %s telah digunakan untuk menandatangani dokumen Formulir Layanan E-Form BPR Perdana secara elektronik.", customerName)
+	
+	// Simpan log ke DB dulu sebagai PENDING
+	notifID := uuid.New().String()
+	subj := "Pemberitahuan Penandatanganan Dokumen"
+	logEntry := &model.NotificationLog{
+		ID:            notifID,
+		ApplicationID: app.ID,
+		Channel:       "SMS",
+		Recipient:     *app.Customer.PhoneNumber,
+		Template:      "post_sign_sms",
+		Subject:       &subj,
+		Status:        "PENDING",
+	}
+
+	if err := s.notifRepo.Create(ctx, logEntry); err != nil {
+		s.log.Error("Failed to create SMS log", zap.Error(err))
+	}
+
+	// Kirim SMS
+	s.log.Info("Sending post-sign SMS", zap.String("app_id", app.ID), zap.String("phone", *app.Customer.PhoneNumber))
+	result, err := s.smsClient.Send(*app.Customer.PhoneNumber, message, "POST_SIGN_"+app.ID)
+
+	if err != nil {
+		logEntry.Status = "FAILED"
+		errStr := err.Error()
+		logEntry.ErrorMessage = &errStr
+		s.log.Error("Failed to send post-sign SMS", zap.Error(err))
+	} else if !result.IsSuccess() {
+		logEntry.Status = "FAILED"
+		errMsg := fmt.Sprintf("ErrorCode: %s", result.ErrorCode)
+		logEntry.ErrorMessage = &errMsg
+		s.log.Error("SMS provider returned error", zap.String("error_code", result.ErrorCode))
+	} else {
+		logEntry.Status = "SENT"
+		now := time.Now()
+		logEntry.SentAt = &now
+		logEntry.ProviderMessageID = &result.TransactionID
+	}
+
+	// Update log status
+	_ = s.notifRepo.Update(ctx, logEntry)
+
+	return err
 }
 
 func productLabel(productType string) string {

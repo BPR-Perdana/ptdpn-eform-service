@@ -375,6 +375,24 @@ func (s *contractService) CompleteContract(ctx context.Context, vidaTransactionI
 		NewValue:    model.JSON{"status": "COMPLETED", "envelope_id": vidaTransactionID},
 	})
 
+	// Fetch app detail to get phone and name
+	if appDetail, errApp := s.appRepo.FindByIDWithDetails(ctx, doc.ApplicationID); errApp == nil {
+		// Kirim post-sign SMS secara asynchronous agar tidak memblokir webhook
+		go func() {
+			defer func() {
+				if r := recover(); r != nil {
+					s.log.Error("goroutine panicked during post-sign SMS", zap.Any("panic", r))
+				}
+			}()
+			bgCtx := context.Background()
+			if err := s.notifSvc.SendPostSignSMS(bgCtx, appDetail); err != nil {
+				s.log.Error("failed to send post-sign SMS", zap.Error(err), zap.String("app_id", doc.ApplicationID))
+			}
+		}()
+	} else {
+		s.log.Error("failed to fetch app details for post-sign SMS", zap.Error(errApp))
+	}
+
 	s.log.Info("Contract COMPLETED",
 		zap.String("app_id", doc.ApplicationID),
 		zap.String("envelope_id", vidaTransactionID),

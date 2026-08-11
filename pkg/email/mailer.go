@@ -10,6 +10,7 @@ import (
 	"net/smtp"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 )
@@ -58,6 +59,18 @@ func (m *Mailer) LoadLogo(logoPath string) error {
 			exeDir := filepath.Dir(exePath)
 			absPath = filepath.Join(exeDir, logoPath)
 			data, err = os.ReadFile(absPath)
+		}
+		if err != nil {
+			// Fallback 2: Coba runtime.Caller untuk development (go run)
+			// Berguna di Windows jika go run dijalankan dari direktori berbeda
+			_, filename, _, ok := runtime.Caller(0)
+			if ok {
+				// filename = .../pkg/email/mailer.go
+				// projectRoot = .../
+				projectRoot := filepath.Dir(filepath.Dir(filepath.Dir(filename)))
+				absPath = filepath.Join(projectRoot, logoPath)
+				data, err = os.ReadFile(absPath)
+			}
 		}
 		if err != nil {
 			return fmt.Errorf("logo file not found at %s: %w", logoPath, err)
