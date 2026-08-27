@@ -514,23 +514,45 @@ func (h *ApplicationHandler) TrackStatus(c *gin.Context) {
 }
 
 // SendOTP handles POST /api/v1/applications/:id/otp/send
-// Mengirim kode OTP ke nomor HP nasabah via SMS IOH.
-// Nomor HP diambil dari data yang sudah diisi di Step 4 (UpdatePersonalInfo).
+// Mengirim kode OTP ke nasabah via SMS IOH atau Email.
+// Nomor HP / Email diambil dari data yang sudah diisi di Step 4 (UpdatePersonalInfo).
+type sendOTPRequest struct {
+	Method string `json:"method"`
+}
+
 func (h *ApplicationHandler) SendOTP(c *gin.Context) {
 	appID := c.Param("id") // session sudah divalidasi oleh middleware
 
-	// Load detail aplikasi untuk mendapatkan nomor HP
+	var req sendOTPRequest
+	// Bind body secara opsional
+	if err := c.ShouldBind(&req); err != nil {
+		h.log.Warn("SendOTP bind error", zap.Error(err))
+	}
+	if req.Method == "" {
+		req.Method = "sms" // Default fallback
+	}
+
+	// Load detail aplikasi untuk mendapatkan kontak
 	app, err := h.appService.GetApplicationWithDetails(c.Request.Context(), appID)
 	if err != nil {
 		handleAppError(c, err)
 		return
 	}
-	if app.Customer.PhoneNumber == nil || *app.Customer.PhoneNumber == "" {
+	
+	if req.Method == "sms" && (app.Customer.PhoneNumber == nil || *app.Customer.PhoneNumber == "") {
 		response.BadRequest(c, "Nomor HP belum diisi. Lengkapi data pribadi terlebih dahulu.")
 		return
 	}
 
-	if err := h.otpSvc.SendOTP(c.Request.Context(), appID, *app.Customer.PhoneNumber); err != nil {
+	var emailAddr, phoneStr string
+	if app.Customer.Email != nil {
+		emailAddr = *app.Customer.Email
+	}
+	if app.Customer.PhoneNumber != nil {
+		phoneStr = *app.Customer.PhoneNumber
+	}
+
+	if err := h.otpSvc.SendOTP(c.Request.Context(), appID, phoneStr, emailAddr, req.Method); err != nil {
 		switch {
 		case strings.HasPrefix(err.Error(), "OTP_COOLDOWN:"):
 			secs := strings.TrimPrefix(err.Error(), "OTP_COOLDOWN:")
@@ -545,13 +567,14 @@ func (h *ApplicationHandler) SendOTP(c *gin.Context) {
 		return
 	}
 
-	response.OK(c, "Kode OTP berhasil dikirim ke nomor HP Anda.", nil)
+	response.OK(c, "Kode OTP berhasil dikirim", nil)
 }
 
 // VerifyOTP handles POST /api/v1/applications/:id/otp/verify
 // Memverifikasi kode OTP yang dikirimkan ke nasabah.
 type verifyOTPRequest struct {
-	Code string `json:"code" binding:"required"`
+	Code   string `json:"code" binding:"required"`
+	Method string `json:"method"` // "sms" atau "email"
 }
 
 func (h *ApplicationHandler) VerifyOTP(c *gin.Context) {
@@ -562,8 +585,11 @@ func (h *ApplicationHandler) VerifyOTP(c *gin.Context) {
 		response.BadRequest(c, "Kode OTP wajib diisi.")
 		return
 	}
+	if req.Method == "" {
+		req.Method = "sms" // Default fallback
+	}
 
-	if err := h.otpSvc.VerifyOTP(c.Request.Context(), appID, req.Code); err != nil {
+	if err := h.otpSvc.VerifyOTP(c.Request.Context(), appID, req.Code, req.Method); err != nil {
 		switch {
 		case strings.HasPrefix(err.Error(), "OTP_INVALID:"):
 			remaining := strings.TrimPrefix(err.Error(), "OTP_INVALID:")
@@ -576,6 +602,7 @@ func (h *ApplicationHandler) VerifyOTP(c *gin.Context) {
 		default:
 			h.log.Error("VerifyOTP failed",
 				zap.String("app_id", appID),
+				zap.String("method", req.Method),
 				zap.Error(err),
 			)
 			response.InternalError(c, "Gagal verifikasi OTP.")
@@ -583,17 +610,26 @@ func (h *ApplicationHandler) VerifyOTP(c *gin.Context) {
 		return
 	}
 
-	// OTP benar — tandai nomor HP sudah terverifikasi
-	if err := h.appService.MarkPhoneVerified(c.Request.Context(), appID); err != nil {
-		h.log.Error("MarkPhoneVerified failed",
+	// OTP benar — tandai nomor HP atau email sudah terverifikasi
+	var verifyErr error
+	if req.Method == "email" {
+		verifyErr = h.appService.MarkEmailVerified(c.Request.Context(), appID)
+	} else {
+		verifyErr = h.appService.MarkPhoneVerified(c.Request.Context(), appID)
+	}
+
+	if verifyErr != nil {
+		h.log.Error("MarkVerified failed",
 			zap.String("app_id", appID),
-			zap.Error(err),
+			zap.String("method", req.Method),
+			zap.Error(verifyErr),
 		)
 		// Tidak block response — OTP sudah verified, hanya update DB yang gagal
 	}
 
-	response.OK(c, "Nomor HP berhasil diverifikasi. Lanjutkan ke proses verifikasi wajah.", gin.H{
-		"phone_verified": true,
+	response.OK(c, "Kode OTP berhasil diverifikasi.", gin.H{
+		"verified": true,
+		"method":   req.Method,
 	})
 }
 

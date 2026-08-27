@@ -192,14 +192,18 @@ type VidaeMateraiConfig struct {
 
 // ─── Notification Configuration ───────────────────────────────────────────────
 
-// EmailConfig holds SMTP settings for email notifications.
+// EmailConfig holds settings for email notifications.
 type EmailConfig struct {
-	Host      string // SMTP_HOST
-	Port      int    // SMTP_PORT
-	Username  string // SMTP_USERNAME
-	Password  string // SMTP_PASSWORD
-	FromName  string // SMTP_FROM_NAME
-	FromEmail string // SMTP_FROM_EMAIL
+	Provider         string // EMAIL_PROVIDER: "smtp" (default) or "graph"
+	Host             string // SMTP_HOST
+	Port             int    // SMTP_PORT
+	Username         string // SMTP_USERNAME
+	Password         string // SMTP_PASSWORD
+	FromName         string // SMTP_FROM_NAME
+	FromEmail        string // SMTP_FROM_EMAIL
+	GraphTenantID    string // GRAPH_TENANT_ID
+	GraphClientID    string // GRAPH_CLIENT_ID
+	GraphClientSecret string // GRAPH_CLIENT_SECRET
 }
 
 // WhatsAppConfig holds settings for WhatsApp notifications.
@@ -356,12 +360,19 @@ func Load() (*Config, error) {
 
 	// ── Email ────────────────────────────────────────────────────────────────
 	cfg.Email = EmailConfig{
-		Host:      v.GetString("SMTP_HOST"),
-		Port:      v.GetInt("SMTP_PORT"),
-		Username:  v.GetString("SMTP_USERNAME"),
-		Password:  v.GetString("SMTP_PASSWORD"),
-		FromName:  v.GetString("SMTP_FROM_NAME"),
-		FromEmail: v.GetString("SMTP_FROM_EMAIL"),
+		Provider:          v.GetString("EMAIL_PROVIDER"),
+		Host:              v.GetString("SMTP_HOST"),
+		Port:              v.GetInt("SMTP_PORT"),
+		Username:          v.GetString("SMTP_USERNAME"),
+		Password:          v.GetString("SMTP_PASSWORD"),
+		FromName:          v.GetString("SMTP_FROM_NAME"),
+		FromEmail:         v.GetString("SMTP_FROM_EMAIL"),
+		GraphTenantID:     v.GetString("GRAPH_TENANT_ID"),
+		GraphClientID:     v.GetString("GRAPH_CLIENT_ID"),
+		GraphClientSecret: v.GetString("GRAPH_CLIENT_SECRET"),
+	}
+	if cfg.Email.Provider == "" {
+		cfg.Email.Provider = "smtp" // Default fallback
 	}
 
 	// ── WhatsApp ─────────────────────────────────────────────────────────────
